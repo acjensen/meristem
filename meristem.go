@@ -4,7 +4,7 @@ package main
 //
 // Example:
 //    go run meristem.go
-//    convert img/result*.png -loop 0 animation.gif
+//    convert $(ls -1 img/*.png | sort -V) -loop 0 animation.gif
 
 import (
 	"fmt"
