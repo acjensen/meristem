@@ -1,5 +1,11 @@
 package main
 
+// Simulate plant growth using a discrete Lindenmayer function.
+//
+// Example:
+//    go run meristem.go
+//    convert img/result*.png -loop 0 animation.gif
+
 import (
 	"fmt"
 	"github.com/fogleman/gg"
@@ -8,12 +14,10 @@ import (
 	"strconv"
 )
 
+// An L-system is defined as a set of |Rules|. A Rule maps one set of symbols to another.
 type Rules map[string]string
 
-type Mutator interface {
-	Mutate(s string) string
-}
-
+// Define rules for a plant-like system.
 func PlantFractal() Rules {
 	r := make(Rules)
 	r["X"] = "F-[[X]+X]+F[+FX]-X"
@@ -21,45 +25,51 @@ func PlantFractal() Rules {
 	return r
 }
 
-func (r Rules) Mutate(s string) string {
-	var s_new string
-	for _, c := range s {
+// Compute the next system state according to Rules and the current state.
+func (r Rules) Mutate(state string) string {
+	var new_state string
+	// Loop through symbols in the |state| string. If there is a rule for the symbol, apply it. Else, let the symbol pass through.
+	for _, c := range state {
 		if _, has_rule := r[string(c)]; has_rule {
-			s_new += r[string(c)]
+			new_state += r[string(c)]
 		} else {
-			s_new += string(c)
+			new_state += string(c)
 		}
 	}
-	return s_new
+	return new_state
 }
 
-func Simulate(s string, num_steps int, m Mutator) string {
+type Mutator interface {
+	Mutate(s string) string
+}
+
+// Mutate the state exactly |num_steps| times.
+func Simulate(state string, num_steps int, m Mutator) string {
 	for i := 0; i < num_steps; i++ {
-		s = m.Mutate(s)
+		state = m.Mutate(state)
 	}
-	return s
+	return state
 }
 
-func NextCoord(x int, y int, a int) (int, int) {
-	return 1, 1
-}
-
+// Each |Branch| has a |phase| (an angle) and an absolute location |xy| represented in the complex plane.
 type Branch struct {
 	phase float64
 	xy    complex128
 }
 
-func Forward(b Branch, length float64) Branch {
+// Calculate new |xy| location using current phase and given distance.
+func Forward(b Branch, distance float64) Branch {
 	var b_new Branch
 	b_new.phase = b.phase
-	b_new.xy = b.xy + cmplx.Rect(length, b.phase)
+	b_new.xy = b.xy + cmplx.Rect(distance, b.phase)
 	return b_new
 }
 
+// Turn the current branch by |delta_phase|.
 func Turn(b Branch, delta_phase float64) Branch {
 	var b_new Branch
 	b_new.phase = b.phase + delta_phase
-	// Keep phase within [-Pi, Pi]
+	// Keep phase within [-Pi, Pi].
 	if b_new.phase > math.Pi {
 		b_new.phase = b_new.phase - 2*math.Pi
 	}
@@ -70,46 +80,55 @@ func Turn(b Branch, delta_phase float64) Branch {
 	return b_new
 }
 
-func Render(s string, Branch_width float64, phase_diff float64, Branch_length float64, phase_init float64) {
-	init_size := 500.0
-	d := gg.NewContext(int(init_size), int(init_size))
-	d.SetRGB(20, 100, 30)
-	d.SetLineWidth(Branch_width)
-	var stack []Branch
-	// |b| pointer always points to the top of the stack.
+// Interpret symbols in |s| as instructions for a 2D vector drawing. Save each
+// subsequent instruction as an image.
+func Render(state string, branch_length float64, branch_width float64, phase_diff float64, phase_init float64, canvas_size int, img_path string) {
+	d := gg.NewContext(canvas_size, canvas_size)
+	d.SetRGB(205, 133, 63)
+	d.SetLineWidth(branch_width)
+	// Create a stack of branch-off points |b_stack|. |b| always points to the top of the stack.
+	var b_stack []Branch
 	var b *Branch
 	var b_new Branch
-	stack = append(stack, Branch{phase_init, complex(init_size/2.0, init_size/2.0)})
-	b = &stack[len(stack)-1]
+	// Initialize the stack.
+	b_stack = append(b_stack, Branch{phase_init, complex(float64(canvas_size)/2, float64(canvas_size))})
+	b = &b_stack[len(b_stack)-1]
 
-	for idx, c := range s {
+	// Interpret each character of the input string as a drawing action.
+	for idx, c := range state {
 		if c == 'F' {
-			b_new = Forward(*b, Branch_length)
+			// Move forward from |b| to |b_new| and draw a line.
+			b_new = Forward(*b, branch_length)
 			d.DrawLine(real(b.xy), imag(b.xy), real(b_new.xy), imag(b_new.xy))
 			d.Stroke()
 			*b = b_new
-			d.SavePNG("img/result" + strconv.Itoa(idx) + ".png")
+			d.SavePNG(img_path + "/" + strconv.Itoa(idx) + ".png")
 		} else if c == 'G' {
-			b_new = Forward(*b, Branch_length)
+			// Move forward without drawing anything.
+			b_new = Forward(*b, branch_length)
 			*b = b_new
 		} else if c == '-' {
+			// Turn left.
 			*b = Turn(*b, -1*phase_diff)
 		} else if c == '+' {
+			// Turn right.
 			*b = Turn(*b, phase_diff)
 		} else if c == '[' {
+			// Store the current branch state.
 			b_save := *b
-			stack = append(stack, b_save)
-			b = &stack[len(stack)-1]
+			b_stack = append(b_stack, b_save)
+			b = &b_stack[len(b_stack)-1]
 		} else if c == ']' {
-			stack = stack[:len(stack)-1]
-			b = &stack[len(stack)-1]
+			// Return to the last saved branch state.
+			b_stack = b_stack[:len(b_stack)-1]
+			b = &b_stack[len(b_stack)-1]
 		}
 	}
+	fmt.Println("Saved images to: " + img_path)
 }
 
 func main() {
-	r := PlantFractal()
-	ans := Simulate("X", 3, r)
-	Render(ans, 1, math.Pi*2*25/365, 15, 0)
-	fmt.Println("done")
+	rule := PlantFractal()
+	final_state := Simulate("X", 4, rule)
+	Render(final_state, 15, 1, math.Pi*2*25/365, -math.Pi/2, 500, "img")
 }
