@@ -6,7 +6,7 @@ For more info see my [blog post](http://www.acjensen.com/l-system/).
 
 # Example
 
-From your shell, run
+From the shell, run
 
 ```golang
 go run meristem.go
